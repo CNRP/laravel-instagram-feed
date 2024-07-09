@@ -30,8 +30,8 @@ class InstagramManager extends Page
         $this->form->fill([
             'profileName' => $this->profileName,
         ]);
-        // $this->refreshAuthStatus();
-        // $this->refreshFeed();
+        $this->refreshAuthStatus();
+        $this->refreshFeed();
     }
 
     protected function getHeaderActions(): array
@@ -118,6 +118,6 @@ class InstagramManager extends Page
         }, $items);
     }
     
-    
+
     
 }

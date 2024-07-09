@@ -5,7 +5,6 @@
     "require": {
         "php": "^8.1",
         "filament/filament": "^3.2",
-        "filament/forms": "^3.2",
         "livewire/livewire": "^3.0",
         "spatie/laravel-package-tools": "^1.13.0",
         "illuminate/support": "^10.0",

@@ -7,12 +7,11 @@ use Filament\Forms\Form;
 use Filament\Forms\Components\TextInput;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
-use Dymantic\InstagramFeed\Profile;
+use CNRP\InstagramFeed\Facades\InstagramFeed;
 use Illuminate\Support\Facades\Log;
 
 class InstagramManager extends Page 
 {
-
     protected static ?string $navigationIcon = 'heroicon-o-camera';
     protected static ?string $navigationLabel = 'Instagram Feed';
     protected static ?string $title = 'Manage Instagram Feed';
@@ -47,28 +46,24 @@ class InstagramManager extends Page
     {
         Log::info('Refreshing feed for profile:', ['profileName' => $this->profileName]);
         try {
-            $profile = Profile::for($this->profileName);
-    
-            if ($profile === null) {
-                throw new \Exception('Profile is null');
-            }
-    
-            $feedData = $profile->feed();
+            $feedItems = InstagramFeed::refreshFeed();
             
-            // Debugging: Log the raw feed data
-            Log::info('Raw feed data:', (array)$feedData);
-    
-            $this->feed = $this->transformFeedData($feedData);
-    
-            // Debugging: Log the transformed feed data
-            Log::info('Transformed feed data:', $this->feed);
-    
+            Log::info('Feed items received:', [
+                'count' => $feedItems->count(),
+                'first_item' => json_encode($feedItems->first())
+            ]);
+            
+            $this->feed = $feedItems->toArray();
+            
             Notification::make()
                 ->title('Feed refreshed successfully')
                 ->success()
                 ->send();
         } catch (\Exception $e) {
-            Log::error('Error refreshing feed:', ['error' => $e->getMessage()]);
+            Log::error('Error refreshing feed:', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
             Notification::make()
                 ->title('Failed to refresh feed')
                 ->body('Error: ' . $e->getMessage())
@@ -80,44 +75,16 @@ class InstagramManager extends Page
     protected function refreshAuthStatus(): void
     {
         Log::info('Refreshing auth status for profile:', ['profileName' => $this->profileName]);
-        $profile = Profile::for($this->profileName);
-
-        if ($profile === null) {
-            Log::error('Profile is null for profile name:', ['profileName' => $this->profileName]);
+        try {
+            $this->isAuthorized = InstagramFeed::isAuthorized();
+            $this->authUrl = InstagramFeed::getAuthUrl();
+        } catch (\Exception $e) {
+            Log::error('Error refreshing auth status:', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
             $this->isAuthorized = false;
             $this->authUrl = null;
-            return;
         }
-
-        $this->isAuthorized = $profile->hasInstagramAccess();
-        $this->authUrl = $profile->getInstagramAuthUrl();
     }
-    
-    protected function transformFeedData($feedData): array
-    {
-        $reflection = new \ReflectionClass($feedData);
-        $itemsProperty = $reflection->getProperty('items');
-        $itemsProperty->setAccessible(true);
-        $items = $itemsProperty->getValue($feedData);
-    
-        if (empty($items)) {
-            Log::error('No items found in feed data');
-            return [];
-        }
-    
-        return array_map(function ($post) {
-            return [
-                'id' => $post->id ?? '',
-                'url' => $post->url ?? '',
-                'caption' => $post->caption ?? '',
-                'permalink' => $post->permalink ?? '',
-                'timestamp' => $post->timestamp ?? '',
-                'type' => $post->type ?? '',
-                // Add any other fields you need
-            ];
-        }, $items);
-    }
-    
-
-    
 }

@@ -1,10 +1,6 @@
 # Laravel Instagram Feed
 
-<<<<<<< HEAD
 A Laravel package for fetching, storing, and displaying Instagram feeds with Filament.
-=======
-A Laravel package for fetching, storing, and displaying Instagram feeds using Dymantic/laravel-instagram-feed with WebP image conversion.
->>>>>>> 8a2f34e73db5af9bcfb0f1741c842c4138c5ab8e
 
 ## Features
 

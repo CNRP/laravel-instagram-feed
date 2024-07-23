@@ -1,0 +1,240 @@
+/* instagram-feed.css */
+
+.auth-required {
+    margin-top: 2rem;
+}
+
+.auth-required h2 {
+    font-size: 1.125rem;
+    font-weight: 500;
+    color: #111827;
+}
+
+.auth-required p {
+    margin-top: 0.25rem;
+    font-size: 0.875rem;
+    color: #4B5563;
+}
+
+.auth-button {
+    margin-top: 1rem;
+}
+
+.insta-manager-container {
+    margin-top: 2rem;
+}
+
+.insta-manager-container h2 {
+    font-size: 1.125rem;
+    font-weight: 500;
+    color: #111827;
+    margin-bottom: 1rem;
+}
+
+.instagram-feed-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 1rem;
+}
+
+.instagram-post {
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.instagram-media-wrapper {
+    position: relative;
+    width: 100%;
+    padding-top: 100%;
+    /* Creates a 1:1 aspect ratio */
+}
+
+.instagram-post-media {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+.instagram-carousel {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    transition: transform 0.3s ease-in-out;
+}
+
+.carousel-item {
+    flex: 0 0 100%;
+    width: 100%;
+    height: 100%;
+}
+
+.carousel-item img,
+.carousel-item video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.carousel-button {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    background-color: rgba(0, 0, 0, 0.5);
+    color: white;
+    border: none;
+    border-radius: 9999px;
+    width: 2rem;
+    height: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 1rem;
+    z-index: 10;
+}
+
+.carousel-button.prev {
+    left: 0.5rem;
+}
+
+.carousel-button.next {
+    right: 0.5rem;
+}
+
+.carousel-indicators {
+    position: absolute;
+    bottom: 0.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 0.5rem;
+    z-index: 10;
+}
+
+.indicator {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 9999px;
+    background-color: rgba(255, 255, 255, 0.5);
+}
+
+.indicator.active {
+    background-color: white;
+}
+
+.instagram-post-content {
+    padding: 1rem;
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.instagram-post-caption {
+    font-size: 0.875rem;
+    color: #4B5563;
+    margin-bottom: 0.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+}
+
+.instagram-post-link {
+    font-size: 0.75rem;
+    color: #3B82F6;
+    text-decoration: none;
+    margin-top: auto;
+}
+
+.instagram-post-link:hover {
+    text-decoration: underline;
+}
+
+.instagram-post-meta {
+    font-size: 0.75rem;
+    color: #9CA3AF;
+    margin-top: 0.25rem;
+}
+
+.pagination-container {
+    margin-top: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.pagination-info {
+    font-size: 0.875rem;
+    color: #4B5563;
+}
+
+.pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.page-info {
+    padding: 0.5rem 1rem;
+    background-color: #F3F4F6;
+    border-radius: 0.25rem;
+    font-size: 0.875rem;
+    color: #4B5563;
+}
+
+
+.edit-button {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background-color: rgba(255, 255, 255, 0.8);
+    border: none;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    color: #000;
+    text-decoration: none;
+    transition: opacity 0.3s ease, background-color 0.3s ease;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.instagram-post:hover .edit-button {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.edit-button:hover {
+    background-color: rgba(255, 255, 255, 1);
+}
+
+/* Responsive adjustments */
+@media (min-width: 640px) {
+    .instagram-feed-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (min-width: 768px) {
+    .instagram-feed-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (min-width: 1024px) {
+    .instagram-feed-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}

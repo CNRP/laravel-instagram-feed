@@ -7,8 +7,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class InstagramPost extends Model
 {
+<<<<<<< HEAD
     protected $table = 'cnrp_instagram_posts';
 
+=======
+>>>>>>> 8a2f34e73db5af9bcfb0f1741c842c4138c5ab8e
     protected $fillable = [
         'instagram_id',
         'type',

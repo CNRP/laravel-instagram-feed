@@ -6,8 +6,14 @@
         "php": "^8.1",
         "filament/filament": "^3.2",
         "livewire/livewire": "^3.0",
+<<<<<<< HEAD
         "spatie/laravel-package-tools": "^1.16.0",
         "illuminate/support": "^10.0",
+=======
+        "spatie/laravel-package-tools": "^1.13.0",
+        "illuminate/support": "^10.0",
+        "dymantic/laravel-instagram-feed": "^3.0",
+>>>>>>> 8a2f34e73db5af9bcfb0f1741c842c4138c5ab8e
         "intervention/image": "^3.0"
     },
     "autoload": {

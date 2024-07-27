@@ -106,6 +106,13 @@ You can interact with these models using standard Eloquent operations.
 
 Images are automatically converted to WebP format when stored, improving load times and optimizing storage usage.
 
+## Planned Features
+- Scheduled refreshing of auth tokens and fetching feed
+- Call api/download in batches
+- Customizable front-end components
+- Configurable compression settings/disable conversion
+- Hide posts
+
 ## License
 
 This package is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
@@ -113,3 +120,4 @@ This package is open-sourced software licensed under the [MIT license](https://o
 ## Support
 
 If you encounter any issues or have questions, please [open an issue](https://github.com/cnrp/laravel-instagram-feed/issues) on GitHub.
+

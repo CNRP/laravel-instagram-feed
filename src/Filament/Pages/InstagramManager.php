@@ -22,10 +22,10 @@ class InstagramManager extends Page implements HasForms
     use InstagramFeedLogger;
 
     protected static ?string $navigationIcon = 'heroicon-o-camera';
-    protected static ?string $navigationLabel = 'Instagram Feed';
+    protected static ?string $navigationLabel = 'Instagram Manager';
     protected static ?string $title = 'Manage Instagram Feed';
-    protected static ?string $slug = 'instagram-feed';
-    protected static string $view = 'instagram-feed::filament.pages.manage-instagram-feed';
+    protected static ?string $slug = 'instagram-manager';
+    protected static string $view = 'instagram-feed::filament.pages.instagram-manager';
 
     public ?string $authUrl = null;
     public bool $isAuthorized = false;

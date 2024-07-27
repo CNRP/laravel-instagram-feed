@@ -18,7 +18,8 @@ class InstagramFeedProvider extends PackageServiceProvider
             ->name('instagram-feed')
             ->hasViews()
             ->hasRoute('web')
-            ->hasConfigFile();
+            ->hasConfigFile()
+            ->hasAssets();
     }
 
     public function packageRegistered(): void

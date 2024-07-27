@@ -72,6 +72,9 @@ This package provides a Filament page for managing your Instagram feeds. You can
 3. Once authenticated, you can view and manage multiple Instagram profiles and their feeds.
 4. Use the "Refresh Feed" button to manually update the feed for a selected profile.
 
+To publish the styles for the Instagram Manager page, run the following command
+`php artisan filament:assets`
+
 ### Programmatic Usage
 
 You can also use the package programmatically:

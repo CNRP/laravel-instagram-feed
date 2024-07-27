@@ -6,9 +6,11 @@ use CNRP\InstagramFeed\Models\InstagramPost;
 use CNRP\InstagramFeed\Filament\Resources\InstagramPostResource\Pages;
 use Filament\Forms;
 use Filament\Forms\Form;
-use Filament\Resources\Resource;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Grid;
+use Filament\Forms\Components\Section;
+use Filament\Resources\Resource;
 
 class InstagramPostResource extends Resource
 {
@@ -18,6 +20,7 @@ class InstagramPostResource extends Resource
 
     protected static bool $shouldRegisterNavigation = false;
 
+    
     public static function form(Form $form): Form
     {
         return $form
@@ -46,30 +49,35 @@ class InstagramPostResource extends Resource
                 Repeater::make('media')
                     ->relationship()
                     ->schema([
-                        Forms\Components\Select::make('media_type')
-                            ->options([
-                                'IMAGE' => 'Image',
-                                'VIDEO' => 'Video',
-                            ])
-                            ->required(),
-                        Forms\Components\Textarea::make('instagram_media_id')
-                            ->maxLength(2200)
-                            ->columnSpanFull(),
-                        FileUpload::make('url')
-                            ->image()
-                            ->disk('instagram')
-                            // ->directory('images/instagram/instagram_18024350173455893.webp')
-                            ->preserveFilenames()
-                            ->acceptedFileTypes(['image/webp', 'image/jpeg', 'image/png'])
-                            ->maxSize(5120) // 5MB
-                            ->required()
-                            ->columnSpanFull(),
+
+                                Grid::make(3)
+                                    ->schema([
+                                        Grid::make(2)
+                                            ->schema([
+                                                Forms\Components\Select::make('media_type')
+                                                    ->options([
+                                                        'IMAGE' => 'Image',
+                                                        'VIDEO' => 'Video',
+                                                    ])
+                                                    ->required(),
+                                                Forms\Components\TextInput::make('instagram_media_id')
+                                                    ->label('Media ID')
+                                                    ->maxLength(255),
+                                            ]),
+                                        FileUpload::make('url')
+                                            ->image()
+                                            ->disk('instagram')
+                                            ->preserveFilenames()
+                                            ->acceptedFileTypes(['image/webp', 'image/jpeg', 'image/png'])
+                                            ->maxSize(5120) // 5MB
+                                            ->required()
+                                            ->columnSpan(3),
+                                    ])
                     ])
-                    ->columns(2)
                     ->columnSpanFull()
+                    ->grid(3)
             ]);
     }
-
     public static function getPages(): array
     {
         return [

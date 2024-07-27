@@ -10,6 +10,7 @@ class InstagramPost extends Model
     protected $table = 'cnrp_instagram_posts';
 
     protected $fillable = [
+        'instagram_profile_id',
         'instagram_id',
         'type',
         'caption',
@@ -24,5 +25,10 @@ class InstagramPost extends Model
     public function media(): HasMany
     {
         return $this->hasMany(InstagramMedia::class);
+    }
+
+    public function profile(): BelongsTo
+    {
+        return $this->belongsTo(InstagramProfile::class, 'instagram_profile_id');
     }
 }

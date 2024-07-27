@@ -28,4 +28,14 @@ class InstagramProfile extends Model
     {
         return $this->hasMany(InstagramPost::class, 'instagram_profile_id');
     }
+
+    public function isTokenExpired(): bool
+    {
+        return $this->token_expires_at->isPast();
+    }
+
+    public function isAuthorized(): bool
+    {
+        return $this->is_authorized && !$this->isTokenExpired();
+    }
 }

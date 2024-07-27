@@ -1,17 +1,23 @@
 <x-filament-panels::page>
-    @if(!$isAuthorized)
-        <div class="auth-required">
-            <h2>Authorization Required</h2>
-            <p>
-                Your Instagram profile is not authorized. Click the button below to authorize this application with Instagram:
-            </p>
-            <x-filament::button tag="a" href="{{ $authUrl }}" target="_blank" class="auth-button">
-                Authorize with Instagram
-            </x-filament::button>
-        </div>
-    @else
+    <form wire:submit="selectProfile" class="space-y-6">
+        {{ $this->form }}
+    </form>
+
+    @if($selectedProfileId)
+        @if(!$isAuthorized)
+            <div class="auth-required">
+                <h2>Authorization Required</h2>
+                <p>
+                    The selected Instagram profile is not authorized. Click the button below to authorize this application with Instagram:
+                </p>
+                <x-filament::button tag="a" href="{{ $authUrl }}" target="_blank" class="auth-button">
+                    Authorize with Instagram
+                </x-filament::button>
+            </div>
+        @endif
+
         <div class="insta-manager-container">
-            <h2>Instagram Feed</h2>
+            <h2>Instagram Feed for {{ $this->profiles->find($selectedProfileId)->username }}</h2>
             <div class="instagram-feed-grid">
                 @foreach($this->getFeed() as $post)
                     <div class="instagram-post">
@@ -87,6 +93,10 @@
                     </x-filament::button>
                 </div>
             </div>
+        </div>
+    @else
+        <div class="no-profile-selected">
+            <p>No profile selected. Please select a profile to view its feed.</p>
         </div>
     @endif
 </x-filament-panels::page>

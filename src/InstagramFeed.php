@@ -3,17 +3,20 @@
 namespace CNRP\InstagramFeed;
 
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\File;
 use CNRP\InstagramFeed\Models\InstagramPost;
 use CNRP\InstagramFeed\Models\InstagramMedia;
+use CNRP\InstagramFeed\Models\InstagramProfile;
 use Exception;
-use Illuminate\Support\Facades\Log;
+use CNRP\InstagramFeed\Traits\InstagramFeedLogger;
+use Illuminate\Support\Facades\File;
 use Intervention\Image\ImageManager;
 use Intervention\Image\Drivers\Imagick\Driver;
 use Illuminate\Support\Facades\DB;
 
 class InstagramFeed
 {
+    use InstagramFeedLogger;
+
     protected InstagramAPI $api;
 
     public function __construct(InstagramAPI $api)
@@ -21,42 +24,58 @@ class InstagramFeed
         $this->api = $api;
     }
 
-    public function getFeed(int $limit = 20): Collection
+    public function getFeed(InstagramProfile $profile, int $limit = 20): Collection
     {
         try {
-            if (!$this->isAuthorized()) {
-                throw new Exception('Instagram profile is not authorized.');
+            if (!$this->isAuthorized($profile)) {
+                $this->logInfo('Instagram profile is not authorized, returning stored feed', [
+                    'profile_id' => $profile->id,
+                ]);
             }
-            return $this->getStoredFeed($limit);
+            return $this->getStoredFeed($profile, $limit);
         } catch (Exception $e) {
-            Log::error('Error getting feed:', ['error' => $e->getMessage()]);
+            $this->logError('Error getting feed', [
+                'error' => $e->getMessage(),
+                'profile_id' => $profile->id,
+            ]);
             return collect();
         }
     }
 
-    public function refreshFeed(): void
+    public function refreshFeed(InstagramProfile $profile): void
     {
         try {
-            if (!$this->isAuthorized()) {
+            if (!$this->isAuthorized($profile)) {
+                $this->logError('Instagram profile is not authorized for refresh', [
+                    'profile_id' => $profile->id,
+                ]);
                 throw new Exception('Instagram profile is not authorized.');
             }
             
-            $feedData = $this->api->getFeed();
-            Log::info('Raw feed data:', ['data' => json_encode($feedData)]);
+            $feedData = $this->api->getFeed($profile);
+            $this->logInfo('Raw feed data received', [
+                'profile_id' => $profile->id,
+                'post_count' => count($feedData),
+            ]);
             
-            $this->storeFeed($feedData);
+            $this->storeFeed($profile, $feedData);
         } catch (Exception $e) {
-            Log::error('Error refreshing feed:', ['error' => $e->getMessage()]);
+            $this->logError('Error refreshing feed', [
+                'error' => $e->getMessage(),
+                'profile_id' => $profile->id,
+            ]);
             throw $e;
         }
     }
 
-
-    protected function storeFeed($feedData): void
+    protected function storeFeed(InstagramProfile $profile, $feedData): void
     {
         foreach ($feedData as $post) {
             $instagramPost = InstagramPost::updateOrCreate(
-                ['instagram_id' => $post['id']],
+                [
+                    'instagram_profile_id' => $profile->id,
+                    'instagram_id' => $post['id']
+                ],
                 [
                     'type' => $post['media_type'],
                     'caption' => $post['caption'] ?? '',
@@ -65,8 +84,8 @@ class InstagramFeed
                 ]
             );
 
-            Log::info('Processing post', [
-                'id' => $post['id'],
+            $this->logInfo('Processing post', [
+                'post_id' => $post['id'],
                 'type' => $post['media_type'],
                 'is_carousel' => $post['media_type'] === 'CAROUSEL_ALBUM',
             ]);
@@ -129,13 +148,13 @@ class InstagramFeed
                 ]
             );
 
-            Log::info('Media item stored successfully', [
+            $this->logInfo('Media item stored successfully', [
                 'instagram_id' => $instagramPost->instagram_id,
                 'media_id' => $mediaId,
                 'media_type' => $mediaType
             ]);
         } catch (\Exception $e) {
-            Log::error('Failed to store media item', [
+            $this->logError('Failed to store media item', [
                 'instagram_id' => $instagramPost->instagram_id,
                 'media_id' => $mediaId ?? 'unknown',
                 'error' => $e->getMessage()
@@ -143,16 +162,29 @@ class InstagramFeed
         }
     }
 
+    protected function getStoredFeed(InstagramProfile $profile, int $limit): Collection
+    {
+        return InstagramPost::where('instagram_profile_id', $profile->id)
+            ->with('media')
+            ->latest('timestamp')
+            ->take($limit)
+            ->get();
+    }
 
-    public function clearAllPosts(): void
+    public function isAuthorized(InstagramProfile $profile): bool
+    {
+        return $profile->is_authorized && $profile->token_expires_at > now();
+    }
+
+    public function clearAllPosts(InstagramProfile $profile): void
     {
         try {
             DB::beginTransaction();
 
-            // Get all media files
-            $mediaFiles = InstagramMedia::all();
+            $mediaFiles = InstagramMedia::whereHas('post', function ($query) use ($profile) {
+                $query->where('instagram_profile_id', $profile->id);
+            })->get();
 
-            // Delete all media files from storage
             foreach ($mediaFiles as $media) {
                 if (File::exists(public_path($media->url))) {
                     File::delete(public_path($media->url));
@@ -162,34 +194,26 @@ class InstagramFeed
                 }
             }
 
-            // Delete all records from the database
-            InstagramMedia::query()->delete();
-            InstagramPost::query()->delete();
+            InstagramMedia::whereHas('post', function ($query) use ($profile) {
+                $query->where('instagram_profile_id', $profile->id);
+            })->delete();
+
+            InstagramPost::where('instagram_profile_id', $profile->id)->delete();
 
             DB::commit();
 
-            Log::info('All Instagram posts and media cleared successfully');
+            $this->logInfo('All Instagram posts and media cleared successfully', [
+                'profile_id' => $profile->id
+            ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Error clearing Instagram posts and media:', [
+            $this->logError('Error clearing Instagram posts and media', [
                 'error' => $e->getMessage(),
+                'profile_id' => $profile->id,
                 'trace' => $e->getTraceAsString()
             ]);
             throw $e;
         }
-    }
-
-    protected function getStoredFeed(int $limit): Collection
-    {
-        return InstagramPost::with('media')
-            ->latest('timestamp')
-            ->take($limit)
-            ->get();
-    }
-
-    public function isAuthorized(): bool
-    {
-        return $this->api->isAuthorized();
     }
 
     public function getAuthUrl(): string

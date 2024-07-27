@@ -3,17 +3,24 @@
 namespace CNRP\InstagramFeed\Filament\Pages;
 
 use Filament\Pages\Page;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Contracts\HasForms;
+use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use CNRP\InstagramFeed\InstagramAPI;
 use CNRP\InstagramFeed\InstagramFeed;
-use Illuminate\Support\Facades\Log;
+use CNRP\InstagramFeed\Models\InstagramProfile;
 use Illuminate\Support\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
+use CNRP\InstagramFeed\Traits\InstagramFeedLogger;
 use CNRP\InstagramFeed\Filament\Resources\InstagramPostResource;
 
-class InstagramManager extends Page 
+class InstagramManager extends Page implements HasForms
 {
+    use InteractsWithForms;
+    use InstagramFeedLogger;
+
     protected static ?string $navigationIcon = 'heroicon-o-camera';
     protected static ?string $navigationLabel = 'Instagram Feed';
     protected static ?string $title = 'Manage Instagram Feed';
@@ -26,31 +33,52 @@ class InstagramManager extends Page
     protected $feed;
     public $currentPage = 1;
     public $perPage = 8;
+    public $selectedProfileId;
+    public Collection $profiles;
 
+    protected InstagramAPI $instagramApi;
     protected InstagramFeed $instagramFeed;
 
-    public function boot(): void
+    public function boot(InstagramAPI $instagramApi, InstagramFeed $instagramFeed): void
     {
-        $api = new InstagramAPI();
-        $this->instagramFeed = new InstagramFeed($api);
+        $this->instagramApi = $instagramApi;
+        $this->instagramFeed = $instagramFeed;
     }
 
     public function mount(): void
     {
+        $this->profiles = InstagramProfile::all();
+        $this->selectedProfileId = $this->profiles->first()->id ?? null;
         $this->refreshAuthStatus();
-        $this->initializeFeed();
+    }
+
+    protected function getFormSchema(): array
+    {
+        return [
+            Select::make('selectedProfileId')
+                ->label('Select Profile')
+                ->options($this->profiles->pluck('username', 'id'))
+                ->reactive()
+                ->afterStateUpdated(fn () => $this->selectProfile()),
+        ];
+    }
+
+    public function selectProfile(): void
+    {
+        $this->refreshAuthStatus();
+        $this->feed = null; // Reset feed to trigger re-initialization
     }
 
     protected function getHeaderActions(): array
     {
         return [
-            Action::make('createPost')
-                ->label('Create Post')
-                ->url(InstagramPostResource::getUrl('create'))
-                ->color('success'),
             Action::make('refreshFeed')
                 ->label('Refresh Feed')
-                ->action('refreshFeed'),
+                ->action('refreshFeed')
+                ->visible(fn () => $this->selectedProfileId && $this->isAuthorized),
+            Action::make('addProfile')
+                ->label('Add New Profile')
+                ->action('addNewProfile'),
         ];
     }
 
@@ -64,12 +92,124 @@ class InstagramManager extends Page
 
     protected function initializeFeed(): void
     {
-        $this->feed = $this->instagramFeed->getFeed()->map(function ($post) {
-            $post->edit_url = InstagramPostResource::getUrl('edit', ['record' => $post->id]);
-            return $post;
-        });
-        Log::info('Feed initialized', ['count' => $this->feed->count()]);
+        if ($this->selectedProfileId) {
+            $profile = InstagramProfile::find($this->selectedProfileId);
+            $this->feed = $this->instagramFeed->getFeed($profile)->map(function ($post) {
+                $post->edit_url = InstagramPostResource::getUrl('edit', ['record' => $post->id]);
+                return $post;
+            });
+            $this->logInfo('Feed initialized', [
+                'profile_id' => $profile->id,
+                'post_count' => $this->feed->count()
+            ]);
+        } else {
+            $this->feed = collect();
+            $this->logInfo('No profile selected, feed is empty');
+        }
     }
+
+    public function refreshFeed(): void
+    {
+        try {
+            if ($this->selectedProfileId) {
+                $profile = InstagramProfile::findOrFail($this->selectedProfileId);
+                $this->instagramFeed->refreshFeed($profile);
+                $this->feed = null; // Reset feed to trigger re-initialization
+                $this->refreshAuthStatus();
+                Notification::make()
+                    ->title('Feed refreshed successfully')
+                    ->success()
+                    ->send();
+            }
+        } catch (\Exception $e) {
+            $this->logError('Error in refreshFeed', [
+                'error' => $e->getMessage(),
+                'profile_id' => $this->selectedProfileId,
+            ]);
+    
+            $profile = InstagramProfile::findOrFail($this->selectedProfileId);
+            
+            if (str_contains($e->getMessage(), 'Error validating access token') || 
+                str_contains($e->getMessage(), 'Invalid OAuth access token')) {
+                $profile->is_authorized = false;
+                $profile->access_token = null;
+                $profile->token_expires_at = null;
+                $profile->save();
+    
+                $this->logInfo('Profile authorization revoked due to invalid token', [
+                    'profile_id' => $this->selectedProfileId,
+                ]);
+    
+                $this->refreshAuthStatus();
+    
+                Notification::make()
+                    ->title('Authorization Required')
+                    ->body('Your Instagram profile needs to be reauthorized. Please click the "Authorize with Instagram" button.')
+                    ->warning()
+                    ->send();
+            } else {
+                Notification::make()
+                    ->title('Failed to refresh feed')
+                    ->body('Error: ' . $e->getMessage())
+                    ->danger()
+                    ->send();
+            }
+        }
+    }
+
+    public function addNewProfile(): void
+    {
+        $authUrl = $this->instagramApi->getAuthUrl();
+        $this->redirect($authUrl);
+    }
+
+    public function clearFeed(): void
+    {
+        try {
+            if ($this->selectedProfileId) {
+                $profile = InstagramProfile::find($this->selectedProfileId);
+                $this->instagramFeed->clearAllPosts($profile);
+                $this->initializeFeed();
+                $this->currentPage = 1;
+                $this->logInfo('Feed cleared successfully', [
+                    'profile_id' => $profile->id
+                ]);
+                Notification::make()
+                    ->title('Feed cleared successfully')
+                    ->success()
+                    ->send();
+            }
+        } catch (\Exception $e) {
+            $this->logError('Error clearing feed', [
+                'error' => $e->getMessage(),
+                'profile_id' => $this->selectedProfileId
+            ]);
+            Notification::make()
+                ->title('Failed to clear feed')
+                ->body('Error: ' . $e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
+
+    protected function refreshAuthStatus(): void
+    {
+        if ($this->selectedProfileId) {
+            $profile = InstagramProfile::find($this->selectedProfileId);
+            $this->isAuthorized = $profile && $profile->is_authorized && $profile->token_expires_at > now();
+            $this->authUrl = $this->instagramFeed->getAuthUrl();
+            $this->logInfo('Auth status refreshed', [
+                'profile_id' => $profile->id,
+                'is_authorized' => $this->isAuthorized,
+                'token_expires_at' => $profile->token_expires_at,
+            ]);
+        } else {
+            $this->isAuthorized = false;
+            $this->authUrl = $this->instagramFeed->getAuthUrl();
+            $this->logInfo('No profile selected, auth status set to false');
+        }
+    }
+
 
     protected function paginateFeed(Collection $feed): LengthAwarePaginator
     {
@@ -93,49 +233,6 @@ class InstagramManager extends Page
     {
         if ($this->currentPage > 1) {
             $this->currentPage--;
-        }
-    }
-
-    public function refreshFeed(): void
-    {
-        try {
-            // Clear all existing posts
-            $this->instagramFeed->clearAllPosts();
-
-            // Refresh the feed
-            $this->instagramFeed->refreshFeed();
-            $this->initializeFeed();
-            $this->currentPage = 1;
-            Log::info('Feed cleared and refreshed', ['count' => $this->feed->count()]);
-            Notification::make()
-                ->title('Feed cleared and refreshed successfully')
-                ->success()
-                ->send();
-        } catch (\Exception $e) {
-            Log::error('Error clearing and refreshing feed:', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            Notification::make()
-                ->title('Failed to clear and refresh feed')
-                ->body('Error: ' . $e->getMessage())
-                ->danger()
-                ->send();
-        }
-    }
-
-    protected function refreshAuthStatus(): void
-    {
-        try {
-            $this->isAuthorized = $this->instagramFeed->isAuthorized();
-            $this->authUrl = $this->instagramFeed->getAuthUrl();
-        } catch (\Exception $e) {
-            Log::error('Error refreshing auth status:', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            $this->isAuthorized = false;
-            $this->authUrl = null;
         }
     }
 }

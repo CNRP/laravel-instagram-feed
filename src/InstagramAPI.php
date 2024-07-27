@@ -2,115 +2,89 @@
 
 namespace CNRP\InstagramFeed;
 
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Exception;
-use Illuminate\Support\Facades\Log;
 use CNRP\InstagramFeed\Models\InstagramProfile;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Cache;
+use CNRP\InstagramFeed\Traits\InstagramFeedLogger;
+use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Facades\Config;
 
 class InstagramAPI
 {
-    protected ?InstagramProfile $profile;
+    use InstagramFeedLogger;
+
     protected string $clientId;
-    protected string $clientSecret; 
+    protected string $clientSecret;
     protected string $redirectUri;
 
     public function __construct()
     {
         $this->clientId = config('instagram-feed.client_id');
         $this->clientSecret = config('instagram-feed.client_secret');
-        $this->redirectUri = URL::to(config('instagram-feed.redirect_uri'));
-    
-        Log::info('InstagramAPI initialized', [
-            'redirect_uri' => $this->redirectUri,
-            'client_id_set' => !empty($this->clientId),
-            'client_secret_set' => !empty($this->clientSecret),
-        ]);
-    
-        if (!$this->clientId || !$this->clientSecret) {
-            Log::error('Instagram API configuration error', [
-                'client_id' => $this->clientId ? 'set' : 'not set',
-                'client_secret' => $this->clientSecret ? 'set' : 'not set',
-            ]);
-            throw new Exception('Instagram client ID or secret is not set in the configuration.');
-        }
+        $this->redirectUri = URL::to(Config::get('instagram-feed.redirect_uri'));
     }
 
-    public function isAuthorized(): bool
+    protected function getTokenInfo(string $accessToken): array
     {
-        $this->profile = InstagramProfile::where('is_authorized', true)
-            ->where('token_expires_at', '>', now())
-            ->first();
-
-        $isAuthorized = $this->profile !== null;
-        
-        Log::info('Checking authorization status', [
-            'is_authorized' => $isAuthorized,
-            'profile_exists' => (bool)$this->profile,
-            'token_expires_at' => $this->profile ? $this->profile->token_expires_at : null,
-        ]);
-        
-        return $isAuthorized;
-    }
-
-    public function getFeed(int $limit = 20): Collection
-    {
-        if (!$this->isAuthorized()) {
-            throw new Exception('Profile is not authorized');
-        }
-    
-        try {
-            $feedData = $this->fetchFeedFromApi($limit);
-            Log::info('Feed fetched successfully', ['post_count' => count($feedData)]);
-            return collect($feedData);
-        } catch (Exception $e) {
-            if (str_contains($e->getMessage(), 'Error validating access token')) {
-                if ($this->refreshToken()) {
-                    // Retry fetching feed after token refresh
-                    return $this->getFeed($limit);
-                }
-            }
-            Log::error('Error getting feed', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            throw $e;
-        }
-    }
-
-    protected function fetchFeedFromApi(int $limit): array
-    {
-        $url = "https://graph.instagram.com/v12.0/{$this->profile->user_id}/media";
-        $response = Http::get($url, [
-            'fields' => 'id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,children{media_type,media_url,thumbnail_url}',
-            'access_token' => $this->profile->access_token,
-            'limit' => $limit,
+        $response = Http::get('https://graph.instagram.com/debug_token', [
+            'input_token' => $accessToken,
+            'access_token' => $this->clientId . '|' . $this->clientSecret,
         ]);
 
         if (!$response->successful()) {
-            Log::error('Failed to fetch Instagram feed', [
-                'status' => $response->status(),
-                'body' => $response->body(),
-            ]);
-            throw new Exception('Failed to fetch Instagram feed: ' . $response->body());
+            throw new Exception('Failed to fetch token info: ' . $response->body());
         }
 
-        return $response->json()['data'];
+        return $response->json();
     }
-    
+
+
+    public function handleAuthCallback(string $code, string $state): InstagramProfile
+    {
+        $cachedState = Cache::get('instagram_auth_state');
+        
+        if ($state !== $cachedState) {
+            $this->logError('Invalid state parameter', [
+                'received_state' => $state,
+                'cached_state' => $cachedState
+            ]);
+            throw new Exception('Invalid state parameter');
+        }
+
+        Cache::forget('instagram_auth_state');
+
+        $tokenData = $this->exchangeCodeForToken($code);
+
+        $userProfile = $this->fetchUserProfile($tokenData['access_token']);
+        // dd($userProfile);
+
+        $expiresIn = $tokenData['expires_in'] ?? 0; // 60 days in seconds
+
+        $profile = InstagramProfile::updateOrCreate(
+            ['user_id' => $tokenData['user_id']],
+            [
+                'username' => $userProfile['username'],
+                'access_token' => $tokenData['access_token'],
+                'token_expires_at' => Carbon::now()->addSeconds($expiresIn),
+                'is_authorized' => true,
+            ]
+        );
+
+        $this->logInfo('Instagram profile created/updated', [
+            'username' => $userProfile['username'],
+            'user_id' => $tokenData['user_id'],
+        ]);
+
+        return $profile;
+    }
+
+
     public function getAuthUrl(): string
     {
         $state = bin2hex(random_bytes(16));
         Cache::put('instagram_auth_state', $state, now()->addMinutes(10));
-
-        Log::info('Generated Instagram auth URL', [
-            'state' => $state,
-            'client_id' => $this->clientId,
-            'redirect_uri' => $this->redirectUri
-        ]);
 
         return "https://api.instagram.com/oauth/authorize?" . http_build_query([
             'client_id' => $this->clientId,
@@ -121,57 +95,6 @@ class InstagramAPI
         ]);
     }
 
-    public function handleAuthCallback(string $code, string $state): bool
-    {
-        $cachedState = Cache::get('instagram_auth_state');
-        
-        Log::info('Handling Instagram auth callback', [
-            'received_state' => $state,
-            'cached_state' => $cachedState
-        ]);
-
-        if ($state !== $cachedState) {
-            Log::warning('Invalid state parameter', [
-                'received_state' => $state,
-                'cached_state' => $cachedState
-            ]);
-            throw new Exception('Invalid state parameter');
-        }
-
-        Cache::forget('instagram_auth_state');
-
-        try {
-            $tokenData = $this->exchangeCodeForToken($code);
-            $userProfile = $this->fetchUserProfile($tokenData['access_token']);
-
-            // Default expiration to 60 days if not provided
-            $expiresIn = $tokenData['expires_in'] ?? 5184000; // 60 days in seconds
-
-            $this->profile = InstagramProfile::updateOrCreate(
-                ['user_id' => $tokenData['user_id']],
-                [
-                    'username' => $userProfile['username'],
-                    'access_token' => $tokenData['access_token'],
-                    'token_expires_at' => Carbon::now()->addSeconds($expiresIn),
-                    'is_authorized' => true,
-                ]
-            );
-
-            Log::info('Instagram profile created/updated', [
-                'username' => $userProfile['username'],
-                'user_id' => $tokenData['user_id'],
-                'expires_in' => $expiresIn,
-            ]);
-
-            return true;
-        } catch (Exception $e) {
-            Log::error('Error handling auth callback', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            throw $e;
-        }
-    }
 
     protected function exchangeCodeForToken(string $code): array
     {
@@ -182,45 +105,33 @@ class InstagramAPI
             'redirect_uri' => $this->redirectUri,
             'code' => $code,
         ];
-
-        Log::info('Attempting to exchange code for token', [
-            'client_id' => $this->clientId,
-            'redirect_uri' => $this->redirectUri,
-            'code_length' => strlen($code),
-        ]);
-
-        try {
-            $response = Http::asForm()->post('https://api.instagram.com/oauth/access_token', $params);
-
-            Log::info('Raw response from Instagram', [
-                'status' => $response->status(),
-                'headers' => $response->headers(),
-                'body' => $response->body(),
-            ]);
-
-            if (!$response->successful()) {
-                Log::error('Failed to exchange code for token', [
-                    'status' => $response->status(),
-                    'body' => $response->body(),
-                    'sent_params' => array_merge($params, ['client_secret' => '******']),
-                ]);
-                throw new Exception('Failed to exchange code for token: ' . $response->body());
-            }
-
-            $responseData = $response->json();
-            Log::info('Successfully exchanged code for token', [
-                'user_id' => $responseData['user_id'] ?? 'not provided',
-                'response_data' => $responseData,
-            ]);
-
-            return $responseData;
-        } catch (Exception $e) {
-            Log::error('Exception during code exchange', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-            throw $e;
+    
+        $response = Http::asForm()->post('https://api.instagram.com/oauth/access_token', $params);
+    
+        if (!$response->successful()) {
+            throw new Exception('Failed to exchange code for token: ' . $response->body());
         }
+    
+        $shortLivedTokenData = $response->json();
+    
+        // Exchange short-lived token for long-lived token
+        $longLivedTokenResponse = Http::get('https://graph.instagram.com/access_token', [
+            'grant_type' => 'ig_exchange_token',
+            'client_secret' => $this->clientSecret,
+            'access_token' => $shortLivedTokenData['access_token'],
+        ]);
+    
+        if (!$longLivedTokenResponse->successful()) {
+            throw new Exception('Failed to exchange for long-lived token: ' . $longLivedTokenResponse->body());
+        }
+    
+        $longLivedTokenData = $longLivedTokenResponse->json();
+    
+        return [
+            'access_token' => $longLivedTokenData['access_token'],
+            'user_id' => $shortLivedTokenData['user_id'],
+            'expires_in' => $longLivedTokenData['expires_in'],
+        ];
     }
 
     protected function fetchUserProfile(string $accessToken): array
@@ -231,7 +142,7 @@ class InstagramAPI
         ]);
 
         if (!$response->successful()) {
-            Log::error('Failed to fetch user profile', [
+            $this->logError('Failed to fetch user profile', [
                 'status' => $response->status(),
                 'body' => $response->body(),
             ]);
@@ -241,57 +152,76 @@ class InstagramAPI
         return $response->json();
     }
 
-    // public function getPostDetails(string $mediaId): array
-    // {
-    //     if (!$this->isAuthorized()) {
-    //         throw new Exception('Profile is not authorized');
-    //     }
-
-    //     $url = "https://graph.instagram.com/{$mediaId}";
-    //     $response = Http::get($url, [
-    //         'fields' => 'id,media_type,media_url,thumbnail_url,permalink,caption,children{media_type,media_url,thumbnail_url}',
-    //         'access_token' => $this->profile->access_token,
-    //     ]);
-
-    //     if (!$response->successful()) {
-    //         Log::error('Failed to fetch Instagram post details', [
-    //             'media_id' => $mediaId,
-    //             'status' => $response->status(),
-    //             'body' => $response->body(),
-    //         ]);
-    //         throw new Exception('Failed to fetch Instagram post details: ' . $response->body());
-    //     }
-
-    //     return $response->json();
-    // }
-
-    public function refreshToken(): bool
+    public function refreshTokenIfNeeded(InstagramProfile $profile): bool
     {
-        if (!$this->profile || !$this->profile->access_token) {
-            Log::warning('Attempted to refresh token for non-existent profile');
-            return false;
+        if ($profile->token_expires_at <= now()) {
+            return $this->refreshToken($profile);
+        }
+        return true;
+    }
+
+    public function getFeed(InstagramProfile $profile, int $limit = 20): array
+    {
+        try {
+            return $this->fetchFeed($profile, $limit);
+        } catch (Exception $e) {
+            if (strpos($e->getMessage(), 'Error validating access token') !== false) {
+                $this->logInfo('Token validation failed', ['profile_id' => $profile->id]);
+            }
+            throw $e;
+        }
+    }
+
+    protected function fetchFeed(InstagramProfile $profile, int $limit): array
+    {
+        $url = "https://graph.instagram.com/v12.0/{$profile->user_id}/media";
+        $response = Http::get($url, [
+            'fields' => 'id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,children{media_type,media_url,thumbnail_url}',
+            'access_token' => $profile->access_token,
+            'limit' => $limit,
+        ]);
+
+        if (!$response->successful()) {
+            $this->logError('Failed to fetch Instagram feed', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+            throw new Exception('Failed to fetch Instagram feed: ' . $response->body());
         }
 
+        $this->logInfo('Successfully fetched Instagram feed', [
+            'profile_id' => $profile->id,
+            'post_count' => count($response->json()['data']),
+        ]);
+
+        return $response->json()['data'];
+    }
+
+    public function refreshToken(InstagramProfile $profile): bool
+    {
         $response = Http::get('https://graph.instagram.com/refresh_access_token', [
             'grant_type' => 'ig_refresh_token',
-            'access_token' => $this->profile->access_token,
+            'access_token' => $profile->access_token,
         ]);
 
         if ($response->successful()) {
             $data = $response->json();
-            $this->profile->access_token = $data['access_token'];
-            $this->profile->token_expires_at = Carbon::now()->addSeconds($data['expires_in']);
-            $this->profile->save();
-            Log::info('Token refreshed successfully', [
-                'expires_at' => $this->profile->token_expires_at,
+            $profile->update([
+                'access_token' => $data['access_token'],
+                'token_expires_at' => Carbon::now()->addSeconds($data['expires_in']),
+            ]);
+            $this->logInfo('Token refreshed successfully', [
+                'profile_id' => $profile->id,
+                'new_expiry' => $profile->token_expires_at,
             ]);
             return true;
-        } else {
-            Log::error('Failed to refresh token', [
-                'status' => $response->status(),
-                'body' => $response->body(),
-            ]);
-            return false;
         }
+
+        $this->logError('Failed to refresh token', [
+            'profile_id' => $profile->id,
+            'response' => $response->body(),
+        ]);
+        return false;
     }
+
 }
